@@ -1,0 +1,17 @@
+{
+    "name": "contract",
+    "version": "1.0.0",
+    "scripts": {
+        "lint": "./node_modules/.bin/eslint src/**/*.js",
+        "build": "npx ncc build src/contract.js -o dist",
+        "start": "npm run build && hpdevkit deploy dist"
+    },
+    "dependencies": {
+        "hotpocket-nodejs-contract": "0.5.7",
+        "everpocket-nodejs-contract": "0.1.0",
+        "@vercel/ncc": "0.34.0"
+    },
+    "devDependencies": {
+        "eslint": "8.45.0"
+    }
+}
