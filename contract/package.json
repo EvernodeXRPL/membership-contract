@@ -8,7 +8,7 @@
     },
     "dependencies": {
         "hotpocket-nodejs-contract": "0.5.7",
-        "everpocket-nodejs-contract": "0.1.0",
+        "everpocket-nodejs-contract": "0.1.1",
         "@vercel/ncc": "0.34.0"
     },
     "devDependencies": {
