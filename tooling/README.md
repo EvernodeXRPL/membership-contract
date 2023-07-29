@@ -52,7 +52,7 @@ In this stage, we need to get all nodes synchornized with each other while also 
        origin: {
            pubkey: "public key of node 1",
            netAddress: "network address of node 1",
-           peerPort: "peer port of node 1"
+           peerPort: <peer port of node 1>
        }
    }
    ```
@@ -62,7 +62,7 @@ In this stage, we need to get all nodes synchornized with each other while also 
 ### 3. Configure the cluster wallet with initial signers.
 
 1. The party who has credentials for the cluster wallet should collect the signer address from all the nodes.
-2. Set the collected signer addresses to be the signer list of the account with quorum of 80%.
+2. Set the collected signer addresses to be the signer list of the account with equal weight with quorum of 80% of the weight.
 
 ### 4. Bootstrap the memberships
 

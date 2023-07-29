@@ -18,7 +18,7 @@ class ClusterWallet {
     publicXrplFile = "xrplpublic.json"; // Keeps the shared xrpl account information.
     operationsFile = "wallet-operations.json";
     walletAddress;
-    operations;
+    operations = [];
     registry;
     xrplContext;
 
@@ -28,9 +28,12 @@ class ClusterWallet {
         // back so that address can be added to the cluster wallet account as a signer.
         const msigner = new evp.MultiSigner(walletAddress);
         const signerKey = msigner.generateSigner();
-        msigner.setSigner(signerKey);
+        await fs.promises.writeFile(`../${walletAddress}.key`, JSON.stringify(signerKey));
 
         await this.#persistAddress(walletAddress);
+        await this.#persistOperations();
+
+        console.log("Signer info bootstrapped");
 
         // Return generated multi-sign address.
         return signerKey.account;
@@ -45,7 +48,7 @@ class ClusterWallet {
         ]);
 
         // The everpocket xrplContext maintains this node's signing key and manages multi sign operations with rest of the cluster.
-        this.walletAddress = JSON.parse(data[0].toString());
+        this.walletAddress = JSON.parse(data[0].toString()).address;
         this.xrplContext = new evp.XrplContext(hotPocketContext, this.walletAddress);
         await this.xrplContext.init();
 
@@ -53,7 +56,7 @@ class ClusterWallet {
 
         // Check whether any more wallet operations are needed to fullfil missing information in the membership registry.
 
-        const newMemberships = this.registry.memberships.filter(m => m.status === membershipStatus.member && !m.uriToken);
+        const newMemberships = this.registry.memberships.filter(m => m.status === membershipStatus.pending && !m.uriToken);
         const newMintOps = newMemberships.filter(m => !this.operations.find(op => op.pubkey === m.pubkey && op.type === operationType.tokenMint));
         this.operations.push(...newMintOps.map(m => {
             return {
@@ -78,6 +81,10 @@ class ClusterWallet {
         await this.processOperations();
     }
 
+    async deinit() {
+        await this.xrplContext.deinit();
+    }
+
     async rotateSigners() {
         if (this.operations.length > 0) {
             console.log("Signer rotation abandoned due to pending transactions.");
@@ -92,11 +99,11 @@ class ClusterWallet {
             console.log("Invalid wallet address.");
             return false
         }
-        await fs.promises.writeFile(this.publicXrplFile, JSON.stringify({ address }));
+        await fs.promises.writeFile(this.publicXrplFile, JSON.stringify({ address }, null, 2));
     }
 
     async #persistOperations() {
-        await fs.promises.writeFile(this.operationsFile, JSON.stringify(this.operations));
+        await fs.promises.writeFile(this.operationsFile, JSON.stringify(this.operations, null, 2));
     }
 
     // Submit any pending operations and check for completions of started operations.
@@ -117,8 +124,9 @@ class ClusterWallet {
                     const uri = `${node.pubkey};${node.netAddress};${node.peerPort};${node.userPort}`;
 
                     console.log("Token mint preperation.", uri);
-                    const txn = await this.xrplContext.xrplAcc.prepareMintURIToken(uri);
-                    await this.xrplContext.multiSignAndSubmitTransaction(txn);
+                    const prepTxn = await this.xrplContext.xrplAcc.prepareMintURIToken(uri);
+                    const txn = await this.xrplContext.multiSignAndSubmitTransaction(prepTxn);
+                    operation.status = operationStatus.started;
                     operation.txnHash = txn.hash;
                     operation.tokenUri = uri;
                     console.log("Token mint txn submitted.", uri);
@@ -129,6 +137,7 @@ class ClusterWallet {
                     console.log("Token burn preperation.", node.uriToken);
                     const txn = await this.xrplContext.xrplAcc.prepareBurnURIToken(node.uriToken);
                     await this.xrplContext.multiSignAndSubmitTransaction(txn);
+                    operation.status = operationStatus.started;
                     operation.txnHash = txn.hash;
                     console.log("Token burn txn submitted.", node.uriToken);
                 }
@@ -143,15 +152,15 @@ class ClusterWallet {
                 if (await this.xrplContext.getValidatedTransaction(operation.txnHash)) {
 
                     if (operation.type === operationType.tokenMint) {
-                        const tokenId = await this.xrplContext.xrplAcc.getURITokenByUri(operation.tokenUri);
-                        tokenId && await this.registry.grantMembership(operation.pubkey, tokenId);
+                        const token = await this.xrplContext.xrplAcc.getURITokenByUri(operation.tokenUri);
+                        token && await this.registry.grantMembership(operation.pubkey, token.index);
                     }
                     else if (operation.type === operationType.tokenBurn) {
                         await this.registry.purgeMembership(operation.pubkey);
                     }
 
                     // Remove the completed operation from the list.
-                    this.operations = this.operations.splice(this.operations.indexOf(operation), 1);
+                    this.operations.splice(this.operations.indexOf(operation), 1);
                 }
             }
 

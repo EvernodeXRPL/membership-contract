@@ -75,7 +75,7 @@ class MembershipRegistry {
     async purgeMembership(pubkey) {
         const member = this.memberships.find(m => m.pubkey === pubkey);
         if (member) {
-            this.memberships = this.memberships.splice(this.memberships.indexOf(member), 1);
+            this.memberships.splice(this.memberships.indexOf(member), 1);
             await this.#persist();
         }
         else {
@@ -102,12 +102,12 @@ class MembershipRegistry {
                 uriToken: null
             }
         });
-        this.#persist();
+        await this.#persist();
 
         // Set the HotPocket unl to be the public keys of the initial members.
-        const hpconfig = await this.hpContext.getContractConfig();
+        const hpconfig = await this.contractCtx.getConfig();
         hpconfig.unl = this.memberships.map(m => m.pubkey);
-        await this.hpContext.updateContractConfig(hpconfig);
+        await this.contractCtx.updateConfig(hpconfig);
 
         // Update the peer list so this node forms connection to all the members.
         const peers = this.memberships.map(m => `${m.netAddress}:${m.peerPort}`);
@@ -116,7 +116,7 @@ class MembershipRegistry {
     }
 
     async #persist() {
-        await fs.promises.writeFile(this.membershipsFile, JSON.stringify(this.memberships));
+        await fs.promises.writeFile(this.membershipsFile, JSON.stringify(this.memberships, null, 2));
     }
 }
 
