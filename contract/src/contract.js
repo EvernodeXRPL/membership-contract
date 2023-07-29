@@ -27,9 +27,8 @@ const contract = async (contractCtx) => {
     // All the normal operational work of the contract happens here.
 
     // Configure the contexts provided by everpocket. In the membership contract, we are going to mainly make
-    // use the XrplContext which helps us submit xrpl txns from our cluster.
+    // use the HotPocketContext and XrplContext.
 
-    // XrplContext requires us to provide a HotPocketContext with unl messaging wired-up. So configure that first.
     const hotPocketContext = new evp.HotPocketContext(contractCtx);
     contractCtx.unl.onMessage((node, msg) => hotPocketContext.voteContext.feedUnlMessage(node, msg));
     const xrplContext = new evp.XrplContext(this.hotPocketContext, this.xrpl.address, this.xrpl.secret);
@@ -49,8 +48,25 @@ const contract = async (contractCtx) => {
             const buffer = await contractCtx.users.read(input);
             const msg = JSON.parse(buffer.toString());
 
-            if (msg.type === "membership_request") {
-                // TODO: Handle membership request.
+            if (msg.type === "membership_request" && msg.pubkey && msg.netAddress && msg.peerPort && msg.userPort) {
+                // {
+                //     type: "membership_request",
+                //     pubkey: "",
+                //     netAddress: "",
+                //     peerPort: 1111,
+                //     userPort: 2222,
+                // }
+
+                // TODO: We need support to also perform node's public key verification via this convenience method.
+                if (await hotPocketContext.checkLiveness(msg.netAddress, msg.peerPort)) {
+                    await registry.enrollForMembership(msg.pubkey, msg.netAddress, msg.peerPort, msg.userPort);
+                }
+                else {
+                    console.log("Cannot enroll member. Liveness probe failed.", msg);
+                }
+            }
+            else {
+                console.log("Malformed input.", msg);
             }
         }
     }
@@ -87,12 +103,35 @@ async function handleBootstrapInputs(contractCtx, registry, wallet) {
                     let success = false;
 
                     if (msg.type === "origin_bootstrap" && msg.cluster && msg.node) {
+
+                        // {
+                        //     type: "origin_bootstrap",
+                        //     cluster: {
+                        //         walletAddress: "",     // Cluster wallet address
+                        //     },
+                        //     node: {
+                        //         walletSecret: ""       // This node's signing secret
+                        //     }
+                        // }
+
                         await wallet.persistAddress(msg.cluster.walletAddress);
                         await wallet.persistSecret(msg.node.walletSecret);
                         success = true;
                     }
                     else if (msg.type === "node_bootstrap" && msg.node && msg.origin &&
                         msg.origin.pubkey && msg.origin.netAddress && msg.origin.peerPort) {
+
+                        // {
+                        //     type: "node_bootstrap",
+                        //     node: {
+                        //         walletSecret: ""       // This node's signing secret
+                        //     }
+                        //     origin: {
+                        //         pubkey: "public key of node 1",
+                        //         netAddress: "network address of node 1",
+                        //         peerPort: "peer port of node 1"
+                        //     }
+                        // }
 
                         // Set the private wallet secret.
                         await wallet.persistSecret(msg.node.walletSecret);
@@ -108,8 +147,26 @@ async function handleBootstrapInputs(contractCtx, registry, wallet) {
                     }
                     else if (msg.type === "membership_bootstrap") {
 
+                        // {
+                        //     type: "membership_bootstrap",
+                        //     memberships: [{      // Array containing information about all nodes in the initial cluster
+                        //         pubkey: "",
+                        //         netAddress: "",
+                        //         peerPort: 1111,
+                        //         userPort: 2222,
+                        //     }, {
+                        //         pubkey: "",
+                        //         netAddress: "",
+                        //         peerPort: 3333,
+                        //         userPort: 4444,
+                        //     },...]
+                        // }
+
                         registry.bootstrap(msg.memberships);
                         success = true;
+                    }
+                    else {
+                        console.log("Malformed bootstrap input.", msg);
                     }
 
                     user.send(JSON.stringify({ result: success ? "success" : "error" }));

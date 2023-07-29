@@ -13,7 +13,6 @@ class MembershipRegistry {
     membershipsFile = "memberships.json"; // Keeps the shared cluster membership information.
     memberships = [];
     contractCtx;
-    selfIsSigner = false; // Indicates whether this node is one of the cluster wallet signers.
 
     constructor(contractCtx) {
         this.contractCtx = contractCtx;
@@ -24,7 +23,6 @@ class MembershipRegistry {
         // a soecial bootstrap user input containing the initial unl.
         if (fs.existsSync(this.membershipsFile)) {
             this.memberships = JSON.parse((await fs.promises.readFile(this.membershipsFile)).toString())
-            this.selfIsSigner = this.memberships.find(m => m.pubkey === this.contractCtx.publicKey && m.isSigner);
             return true;
         }
         else {
@@ -33,22 +31,56 @@ class MembershipRegistry {
         }
     }
 
+    async enrollForMembership(pubkey, netAddress, peerPort, userPort) {
+        const member = this.memberships.find(m => m.pubkey === pubkey);
+        if (!member) {
+            this.memberships.push({
+                pubkey,
+                netAddress,
+                peerPort,
+                userPort,
+                status: membershipStatus.pending,
+                uriToken: null
+            })
+            await this.#persist();
+        }
+        else {
+            console.log("enrollForMembership: Member already exists.", pubkey);
+        }
+    }
+
     async grantMembership(pubkey, uriToken) {
         const member = this.memberships.find(m => m.pubkey === pubkey);
-        member.status = membershipStatus.member;
-        member.uriToken = uriToken;
-        await this.#persist();
+        if (member) {
+            member.status = membershipStatus.member;
+            member.uriToken = uriToken;
+            await this.#persist();
+        }
+        else {
+            console.log("grantMembership: Member not found.", pubkey);
+        }
     }
 
     async revokeMembership(pubkey) {
         const member = this.memberships.find(m => m.pubkey === pubkey);
-        member.status = membershipStatus.revoked;
-        await this.#persist();
+        if (member) {
+            member.status = membershipStatus.revoked;
+            await this.#persist();
+        }
+        else {
+            console.log("revokeMembership: Member not found.", pubkey);
+        }
     }
 
     async purgeMembership(pubkey) {
-        this.memberships = this.memberships.filter(m => m.pubkey !== pubkey);
-        await this.#persist();
+        const member = this.memberships.find(m => m.pubkey === pubkey);
+        if (member) {
+            this.memberships = this.memberships.splice(this.memberships.indexOf(member), 1);
+            await this.#persist();
+        }
+        else {
+            console.log("purgeMembership: Member not found.", pubkey);
+        }
     }
 
     // This is called during the cluster initalization to make the initial unl.
@@ -67,7 +99,6 @@ class MembershipRegistry {
                 peerPort: n.peerPort,
                 userPort: n.userPort,
                 status: membershipStatus.pending, // All initial members are added as 'pending' since uri tokens are not minted yet.
-                isSigner: true, // All initial members are assumed to be signers.
                 uriToken: null
             }
         });
