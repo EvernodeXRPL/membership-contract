@@ -1,4 +1,5 @@
 const fs = require("fs");
+const evp = require('everpocket-nodejs-contract');
 const { membershipStatus } = require("./membership-registry");
 
 const operationType = {
@@ -15,32 +16,40 @@ Object.freeze(operationStatus);
 
 class ClusterWallet {
     publicXrplFile = "xrplpublic.json"; // Keeps the shared xrpl account information.
-    privateXrplFile = "../xrplprivate.json"; // Keeps the xrpl secret information for this node.
     operationsFile = "wallet-operations.json";
-    xrpl;
+    walletAddress;
     operations;
     registry;
     xrplContext;
 
-    constructor(registry, xrplContext) {
-        this.registry = registry;
-        this.xrplContext = xrplContext;
+    async bootstrap(walletAddress) {
+
+        // During bootstrap we generate a xrpl key pair private to this node. We store the secret in private storage and return the account address
+        // back so that address can be added to the cluster wallet account as a signer.
+        const msigner = new evp.MultiSigner(walletAddress);
+        const signerKey = msigner.generateSigner();
+        msigner.setSigner(signerKey);
+
+        await this.#persistAddress(walletAddress);
+
+        // Return generated multi-sign address.
+        return signerKey.account;
     }
 
-    async init() {
+    async init(registry, hotPocketContext) {
+        this.registry = registry;
 
         const data = await Promise.all([
             fs.promises.readFile(this.publicXrplFile),
-            fs.promises.readFile(this.privateXrplFile),
             fs.promises.readFile(this.operationsFile)
         ]);
 
-        this.xrpl = {
-            ...JSON.parse(data[0].toString()),
-            ...JSON.parse(data[1].toString())
-        }
+        // The everpocket xrplContext maintains this node's signing key and manages multi sign operations with rest of the cluster.
+        this.walletAddress = JSON.parse(data[0].toString());
+        this.xrplContext = new evp.XrplContext(hotPocketContext, this.walletAddress);
+        await this.xrplContext.init();
 
-        this.operations = JSON.parse(data[2].toString());
+        this.operations = JSON.parse(data[1].toString());
 
         // Check whether any more wallet operations are needed to fullfil missing information in the membership registry.
 
@@ -74,22 +83,16 @@ class ClusterWallet {
             console.log("Signer rotation abandoned due to pending transactions.");
             return;
         }
+
+        // TODO: Use xrplContext to elect a new set of signers.
     }
 
-    async persistAddress(address) {
+    async #persistAddress(address) {
         if (!address) {
             console.log("Invalid wallet address.");
             return false
         }
         await fs.promises.writeFile(this.publicXrplFile, JSON.stringify({ address }));
-    }
-
-    async persistSecret(secret) {
-        if (!secret) {
-            console.log("Invalid wallet secret.");
-            return false
-        }
-        await fs.promises.writeFile(this.privateXrplFile, JSON.stringify({ address: secret }));
     }
 
     async #persistOperations() {

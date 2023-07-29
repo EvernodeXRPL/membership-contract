@@ -12,7 +12,7 @@ const contract = async (contractCtx) => {
     console.log("Membership contract.", `bootstrapped: ${bootstrapped}`);
 
     if (!bootstrapped) {
-        await handleBootstrapInputs(contractCtx, registry, wallet);
+        await handleBootstrapInputs(contractCtx, registry);
         return;
     }
 
@@ -31,12 +31,10 @@ const contract = async (contractCtx) => {
 
     const hotPocketContext = new evp.HotPocketContext(contractCtx);
     contractCtx.unl.onMessage((node, msg) => hotPocketContext.voteContext.feedUnlMessage(node, msg));
-    const xrplContext = new evp.XrplContext(this.hotPocketContext, this.xrpl.address, this.xrpl.secret);
-    await xrplContext.init();
 
     // Cluster wallet class contains logic of maintaining the cluster wallet with vairous membership operations.
-    const wallet = new ClusterWallet(registry, xrplContext);
-    await wallet.init();
+    const wallet = new ClusterWallet();
+    await wallet.init(registry, hotPocketContext);
 
     // Periodically rotate the signers.
     if (contractCtx.lclSeqNo % 100) {
@@ -75,7 +73,7 @@ const contract = async (contractCtx) => {
 const hpc = new HotPocket.Contract();
 hpc.init(contract);
 
-async function handleBootstrapInputs(contractCtx, registry, wallet) {
+async function handleBootstrapInputs(contractCtx, registry) {
 
     for (const user of contractCtx.users.list()) {
 
@@ -88,44 +86,38 @@ async function handleBootstrapInputs(contractCtx, registry, wallet) {
 
                 if (contractCtx.readonly) {
                     console.log("Cannot bootstrap in readonly mode.");
-                    return false;
+                    return;
                 }
 
                 // ed55219 hex public key of the user authorized for submitting the bootstrap input.
                 const authorizedUserPubKey = process.argv.splice(2)[0];
                 if (!authorizedUserPubKey) {
                     console.log("Authorized user for bootstrapping the cluster not specified.");
-                    return false;
+                    return;
                 }
 
                 if (user.publicKey === authorizedUserPubKey) {
 
-                    let success = false;
-
-                    if (msg.type === "origin_bootstrap" && msg.cluster && msg.node) {
+                    if (msg.type === "origin_bootstrap" && msg.walletAddress) {
 
                         // {
                         //     type: "origin_bootstrap",
-                        //     cluster: {
-                        //         walletAddress: "",     // Cluster wallet address
-                        //     },
-                        //     node: {
-                        //         walletSecret: ""       // This node's signing secret
-                        //     }
+                        //     walletAddress: "",     // Cluster wallet address
                         // }
 
-                        await wallet.persistAddress(msg.cluster.walletAddress);
-                        await wallet.persistSecret(msg.node.walletSecret);
-                        success = true;
+                        // Bootstrap the wallet information with a signer key.
+                        const wallet = new ClusterWallet();
+                        const signerAddress = await wallet.bootstrap(msg.walletAddress);
+
+                        await user.send(JSON.stringify({ type: "origin_bootstrap_result", success: true, signerAddress: signerAddress }));
+                        return;
                     }
-                    else if (msg.type === "node_bootstrap" && msg.node && msg.origin &&
+                    else if (msg.type === "node_bootstrap" && msg.walletAddress && msg.origin &&
                         msg.origin.pubkey && msg.origin.netAddress && msg.origin.peerPort) {
 
                         // {
                         //     type: "node_bootstrap",
-                        //     node: {
-                        //         walletSecret: ""       // This node's signing secret
-                        //     }
+                        //     walletAddress: "",     // Cluster wallet address
                         //     origin: {
                         //         pubkey: "public key of node 1",
                         //         netAddress: "network address of node 1",
@@ -133,8 +125,9 @@ async function handleBootstrapInputs(contractCtx, registry, wallet) {
                         //     }
                         // }
 
-                        // Set the private wallet secret.
-                        await wallet.persistSecret(msg.node.walletSecret);
+                        // Bootstrap the wallet information with a signer key.
+                        const wallet = new ClusterWallet();
+                        const signerAddress = await wallet.bootstrap(msg.walletAddress);
 
                         // Set our UNL to the origin node's public key.
                         const hpconfig = await contractCtx.getConfig();
@@ -142,8 +135,10 @@ async function handleBootstrapInputs(contractCtx, registry, wallet) {
                         await contractCtx.updateConfig(hpconfig);
 
                         // Add the connection information of the origin node.
-                        contractCtx.updatePeers([`${msg.origin.netAddress}:${msg.origin.peerPort}`]);
-                        success = true;
+                        await contractCtx.updatePeers([`${msg.origin.netAddress}:${msg.origin.peerPort}`]);
+
+                        await user.send(JSON.stringify({ type: "node_bootstrap_result", success: true, signerAddress: signerAddress }));
+                        return;
                     }
                     else if (msg.type === "membership_bootstrap") {
 
@@ -162,19 +157,16 @@ async function handleBootstrapInputs(contractCtx, registry, wallet) {
                         //     },...]
                         // }
 
-                        registry.bootstrap(msg.memberships);
-                        success = true;
+                        await registry.bootstrap(msg.memberships);
+                        await user.send(JSON.stringify({ type: "membership_bootstrap_result", success: true }));
+                        return;
                     }
                     else {
                         console.log("Malformed bootstrap input.", msg);
                     }
-
-                    user.send(JSON.stringify({ result: success ? "success" : "error" }));
-                    return success;
                 }
                 else {
                     console.log("Unauthorized user for bootstrapping.", user.publicKey);
-                    return false;
                 }
             }
         }
