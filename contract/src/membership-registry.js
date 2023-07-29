@@ -2,8 +2,10 @@ const fs = require("fs");
 
 const membershipStatus = {
     pending: 'pending', // Membership request submitted but not accepted into unl yet.
-    member: 'member'
-}
+    member: 'member',
+    revoked: 'revoked' // Membership has been revoked.
+};
+Object.freeze(membershipStatus);
 
 // This class manages the memberships.
 class MembershipRegistry {
@@ -11,6 +13,7 @@ class MembershipRegistry {
     membershipsFile = "memberships.json"; // Keeps the shared cluster membership information.
     memberships = [];
     contractCtx;
+    selfIsSigner = false; // Indicates whether this node is one of the cluster wallet signers.
 
     constructor(contractCtx) {
         this.contractCtx = contractCtx;
@@ -21,12 +24,31 @@ class MembershipRegistry {
         // a soecial bootstrap user input containing the initial unl.
         if (fs.existsSync(this.membershipsFile)) {
             this.memberships = JSON.parse((await fs.promises.readFile(this.membershipsFile)).toString())
+            this.selfIsSigner = this.memberships.find(m => m.pubkey === this.contractCtx.publicKey && m.isSigner);
             return true;
         }
         else {
             this.memberships = [];
             return false;
         }
+    }
+
+    async grantMembership(pubkey, uriToken) {
+        const member = this.memberships.find(m => m.pubkey === pubkey);
+        member.status = membershipStatus.member;
+        member.uriToken = uriToken;
+        await this.#persist();
+    }
+
+    async revokeMembership(pubkey) {
+        const member = this.memberships.find(m => m.pubkey === pubkey);
+        member.status = membershipStatus.revoked;
+        await this.#persist();
+    }
+
+    async purgeMembership(pubkey) {
+        this.memberships = this.memberships.filter(m => m.pubkey !== pubkey);
+        await this.#persist();
     }
 
     // This is called during the cluster initalization to make the initial unl.
@@ -44,8 +66,8 @@ class MembershipRegistry {
                 netAddress: n.netAddress,
                 peerPort: n.peerPort,
                 userPort: n.userPort,
-                status: membershipStatus.member,
-                isSigner: true,
+                status: membershipStatus.pending, // All initial members are added as 'pending' since uri tokens are not minted yet.
+                isSigner: true, // All initial members are assumed to be signers.
                 uriToken: null
             }
         });
@@ -58,7 +80,7 @@ class MembershipRegistry {
 
         // Update the peer list so this node forms connection to all the members.
         const peers = this.memberships.map(m => `${m.netAddress}:${m.peerPort}`);
-        this.contractCtx.updatePeers(peers);
+        await this.contractCtx.updatePeers(peers);
         return true;
     }
 
@@ -68,5 +90,6 @@ class MembershipRegistry {
 }
 
 module.exports = {
-    MembershipRegistry
+    MembershipRegistry,
+    membershipStatus
 }

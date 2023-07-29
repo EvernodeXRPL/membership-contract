@@ -29,7 +29,8 @@ First, we need to decide how many nodes are going to form the initial UNL cluste
 
 ### 2. Spawning the initial set of nodes
 
-1. Each party independently create their own new contract instance in Evernode.
+1. Agree upon the UUIDv4 contract id for the cluster.
+1. Each party independently create their own new contract instance in Evernode using the agreed upon contrac id.
 1. Record the created instance information for use in upcoming steps.
 
 ### 3. Bootstrap the nodes
