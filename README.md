@@ -2,7 +2,7 @@
 
 This is a contract to demonstrate the "membership model" for cluster management. It means anyone can instantiate their own copy of the contract and the existing UNL cluster can accept the new node into the UNL according to a predefined criteria. In this model, every instance of the UNL cluster is owned by an independant party and they are responsibile for funding their instance as long as they wish to be a member of the cluster.
 
-This model is losely demonstrated in the [instance synchronization HotPocket tutorial](https://github.com/EvernodeXRPL/evernode-sdk/blob/main/hotpocket/tutorial-instance-sync.md#spawn-a-new-node)
+This model is losely demonstrated in the [instance synchronization HotPocket tutorial](https://docs.evernode.org/en/latest/sdk/hotpocket/tutorials/instance-sync.html#spawn-a-new-node).
 
 ## Challenges
 
